@@ -8,6 +8,7 @@ verify_ssl = true
 [packages]
 pathlib2 = "*"
 wxpython = "*"
+pypubsub = "*"
 
 [requires]
 python_version = "3.7"

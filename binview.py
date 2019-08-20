@@ -1,6 +1,11 @@
 import wx
 
-app = wx.App()
-frame = wx.Frame(parent=None, title='Hello World')
-frame.Show()
-app.MainLoop()
+class BinviewFrame(wx.Frame):
+    def __init__(self):
+        super().__init__(parent=None, title="Binary Viewer")
+        self.Show()
+
+if __name__ == '__main__':
+    app = wx.App()
+    frame = BinviewFrame()
+    app.MainLoop()
