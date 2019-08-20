@@ -6,8 +6,8 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-wxpython = "*"
 pathlib2 = "*"
+wxpython = "*"
 
 [requires]
 python_version = "3.7"
