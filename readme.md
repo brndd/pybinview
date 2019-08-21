@@ -18,8 +18,8 @@ On my laptop (Intel i5 5300u) it took about 30 minutes.
 
 # testdata.dat
 
-Included is a sample binary file to test the program on. It should contain 10 structs of the following
-format (big-endian):
+Included is a sample binary file to test the program on. It contains 10 structs of the following
+format (little-endian):
 
 - A random char (1 byte) value.
 - A random short int (2 bytes) value.
@@ -27,3 +27,7 @@ format (big-endian):
 - A random long int (8 bytes) value.
 - A random double-precision floating point (8 bytes) value.
 - A null-terminated string containing the text: "The contents of this string don't really matter."
+
+A .csv file containing matching data is provided to compare results.
+
+New testdata can be generated using create_test_data.py.
