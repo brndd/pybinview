@@ -1,6 +1,8 @@
 import sys
+import os
 import logging
 import wx
+import wx.grid
 import struct
 import re
 
@@ -30,13 +32,19 @@ class Model:
         if struct_format is None:
             logging.debug('struct_format was None, not parsing.')
             return
+
+        if struct_format[0] in ('@', '=', '<', '>', '!'):
+            prefix = struct_format[0]
+            struct_format = struct_format[1:]
+        else:
+            prefix = '<'
         self.struct_format = struct_format
         #we need re for this because str.split() isn't smart enough
         split_format = list(filter(None, re.split(r"(S)", struct_format)))
         logging.debug('struct_format split into %d parts.', len(split_format))
-        #TODO: for now our field (column) names are just these identifiers
-        self.field_names = split_format
 
+
+        #actually parse the data
         offset = 0 #current position in the bytes array
         parsed_structs = []
         data_length = len(self._binary_data)
@@ -57,7 +65,7 @@ class Model:
                     s = str(struct.unpack(f"{len(string_bytearray)}s", string_bytearray)[0], encoding='UTF-8')
                     logging.debug("Read string \"%s\" from data.", s)
                     current_struct.append(s)
-
+                #otherwise we just use struct's built-in facilities to read all the data except null-terminated strings
                 else:
                     size = struct.calcsize('<'+part)
                     if (offset + size) > data_length:
@@ -70,19 +78,100 @@ class Model:
                         logging.debug("Read %d values from data: %s", len(l), str(l))
                         current_struct += l
                     offset += size
-
-            parsed_structs.append(current_struct) #we don't want to append incomplete stuff, I guess
+            parsed_structs.append(current_struct)
         self.structs = parsed_structs
+        pub.sendMessage("file_parsed", structs=parsed_structs)
+
+
+class Controller:
+    def __init__(self):
+        self.model = Model()
+        self.view = MainView()
+        self.view.Show()
+
+        pub.subscribe(self.open_file, "file_selected")
+        pub.subscribe(self.parse_file, "struct_format_selected")
+
+    def open_file(self, filepath):
+        self.model.loadFile(filepath)
+
+    def parse_file(self, struct_format):
+        self.model.parseFile(struct_format)
+
+#This is the main Frame for the GUI
+class MainView(wx.Frame):
+    def __init__(self):
+        super().__init__(parent=None, title="Binary Viewer", size=(800,600))
+        self.create_menu_bar()
+        self.panel = MainPanel(self)
+
+        pub.subscribe(self.file_structure_prompt, "file_loaded")
+
+    def create_menu_bar(self):
+        menu_bar = wx.MenuBar()
+        file_menu = wx.Menu()
+        open_file_menu_item = file_menu.Append(wx.ID_ANY, 'Open File')
+        menu_bar.Append(file_menu, '&File')
+        self.Bind(
+            event=wx.EVT_MENU,
+            handler=self.on_open_file,
+            source=open_file_menu_item
+        )
+        self.SetMenuBar(menu_bar)
+
+    def on_open_file(self, event):
+        dialog = wx.FileDialog(
+            self, message="Open File", defaultDir=os.getcwd(),
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
+        )
+        if dialog.ShowModal() == wx.ID_OK:
+            path = dialog.GetPath()
+            logging.debug("Got path from open dialog: %s", path)
+            pub.sendMessage("file_selected", filepath=path)
+
+        dialog.Destroy()
+
+    def file_structure_prompt(self, filepath):
+        dialog = wx.TextEntryDialog(self, "Input struct format string.")
+        if dialog.ShowModal() == wx.ID_OK:
+            pub.sendMessage("struct_format_selected", struct_format=dialog.GetValue())
+        dialog.Destroy()
+
+#This is the panel/list that shows the parsed data
+class MainPanel(wx.Panel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+
+        self.grid = wx.grid.Grid(self, wx.ID_ANY)
+        #self.grid.EnableEditing(False)
+        self.gridSizer = self.sizer.Add(self.grid, 1, wx.ALL | wx.EXPAND, 5)
+        self.SetSizer(self.sizer)
+        pub.subscribe(self.loadData, "file_parsed")
+
+    def loadData(self, structs):
+        logging.debug("Populating list.")
+        self.grid.SetTable(None)
+        self.grid.CreateGrid(len(structs), len(structs[0]))
+
+        for i, struct in enumerate(structs):
+            for j, field in enumerate(struct):
+                self.grid.SetCellValue(i, j, str(field))
+
+class MyGrid(wx.grid.Grid):
+    def __init__(self, parent):
+        super().__init__(self, parent)
 
 
 
-logging.basicConfig(level=logging.DEBUG)
+
 if __name__ == '__main__':
-    if sys.argv[1] == 'debug':
+    if len(sys.argv) >= 2 and sys.argv[1] == 'debug':
         logging.basicConfig(level=logging.DEBUG)
         useNotifyByWriteFile(sys.stdout)
     else:
         logging.basicConfig(level=logging.INFO)
     logging.debug('Initializing application.')
     app = wx.App()
+    c = Controller()
     app.MainLoop()
