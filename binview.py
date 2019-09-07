@@ -98,6 +98,7 @@ class Controller:
     def parse_file(self, struct_format):
         self.model.parseFile(struct_format)
 
+
 #This is the main Frame for the GUI
 class MainView(wx.Frame):
     def __init__(self):
@@ -105,18 +106,37 @@ class MainView(wx.Frame):
         self.create_menu_bar()
         self.panel = MainPanel(self)
 
+        drop = FileDrop()
+        self.panel.SetDropTarget(drop)
+
         pub.subscribe(self.file_structure_prompt, "file_loaded")
+
+        self.command_processor = wx.CommandProcessor()
+
+        self.Bind(event=wx.EVT_MENU_OPEN, handler=self.update_menu_items)
 
     def create_menu_bar(self):
         menu_bar = wx.MenuBar()
         file_menu = wx.Menu()
-        open_file_menu_item = file_menu.Append(wx.ID_ANY, 'Open File')
+        open_file_menu_item = file_menu.Append(wx.ID_OPEN, 'Open File')
+        self.Bind(event=wx.EVT_MENU, handler=self.on_open_file, source=open_file_menu_item)
+        save_file_menu_item = file_menu.Append(wx.ID_SAVE, 'Export as CSV')
+        save_file_menu_item.Enable(False)
+        self.Bind(event=wx.EVT_MENU, handler=self.on_save_file, source=save_file_menu_item)
+        exit_file_menu_item = file_menu.Append(wx.ID_EXIT, 'Exit')
+        self.Bind(event=wx.EVT_MENU, handler=self.on_quit, source=exit_file_menu_item)
         menu_bar.Append(file_menu, '&File')
-        self.Bind(
-            event=wx.EVT_MENU,
-            handler=self.on_open_file,
-            source=open_file_menu_item
-        )
+
+        edit_menu = wx.Menu()
+        undo_edit_menu_item = edit_menu.Append(wx.ID_UNDO, 'Undo\tCtrl+Z')
+        undo_edit_menu_item.Enable(False)
+        self.Bind(event=wx.EVT_MENU, handler=self.on_undo, source=undo_edit_menu_item)
+        redo_edit_menu_item = edit_menu.Append(wx.ID_REDO, 'Redo\tCtrl+Y')
+        redo_edit_menu_item.Enable(False)
+        self.Bind(event=wx.EVT_MENU, handler=self.on_redo, source=redo_edit_menu_item)
+        menu_bar.Append(edit_menu, '&Edit')
+
+
         self.SetMenuBar(menu_bar)
 
     def on_open_file(self, event):
@@ -131,11 +151,70 @@ class MainView(wx.Frame):
 
         dialog.Destroy()
 
+    #this saves the file into a CSV... for technical reasons (laziness) this breaks the MVC pattern by saving
+    #the string data currently in the grid rather than properly manipulating the data in the Model
+    #(type conversions would make this too complicated for the scope of the project)
+    def on_save_file(self, event):
+        dialog = wx.FileDialog(
+            self, message="Save file as CSV...", defaultDir=os.getcwd(),
+            defaultFile="", wildcard="CSV files (*.csv)|*.csv", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
+        )
+        if dialog.ShowModal() == wx.ID_OK:
+            path = dialog.GetPath()
+            logging.debug("Saving CSV into %s", path)
+
+    def on_quit(self, event):
+        dialog = wx.MessageDialog(self, 'Really quit?', 'Confirm quit', wx.YES_NO | wx.NO_DEFAULT)
+        if dialog.ShowModal() == wx.ID_YES:
+            logging.debug("Exiting program.")
+            dialog.Destroy()
+            self.Close()
+
+    def on_undo(self, event):
+        logging.debug("Undoing")
+        self.command_processor.Undo()
+        self.update_menu_items()
+
+    def on_redo(self, event):
+        logging.debug("Redoing")
+        self.command_processor.Redo()
+        self.update_menu_items()
+
     def file_structure_prompt(self, filepath):
         dialog = wx.TextEntryDialog(self, "Input struct format string.")
         if dialog.ShowModal() == wx.ID_OK:
             pub.sendMessage("struct_format_selected", struct_format=dialog.GetValue())
         dialog.Destroy()
+
+    #this updates the disable/enable state of the menu items appropriately
+    def update_menu_items(self, *args, **kwargs):
+        if self.panel.grid is not None:
+            self.GetMenuBar().FindItemById(wx.ID_SAVE).Enable(True)
+        else:
+            self.GetMenuBar().FindItemById(wx.ID_SAVE).Enable(False)
+
+        if self.command_processor.CanUndo():
+            self.GetMenuBar().FindItemById(wx.ID_UNDO).Enable(True)
+        else:
+            self.GetMenuBar().FindItemById(wx.ID_UNDO).Enable(False)
+
+        if self.command_processor.CanRedo():
+            self.GetMenuBar().FindItemById(wx.ID_REDO).Enable(True)
+        else:
+            self.GetMenuBar().FindItemById(wx.ID_REDO).Enable(False)
+
+
+
+#Drag-and-drop to open a file
+class FileDrop(wx.FileDropTarget):
+    def OnDropFiles(self, x, y, filenames):
+        if len(filenames) > 1:
+            logging.error("Received multiple drag-and-drop files, ignoring.")
+            return False
+        filename = filenames[0]
+        logging.debug("Received filename from drag and drop: %s", filename)
+        pub.sendMessage("file_selected", filepath=filename)
+        return True
 
 #This is the panel/list that shows the parsed data
 class MainPanel(wx.Panel):
@@ -148,10 +227,12 @@ class MainPanel(wx.Panel):
         pub.subscribe(self.loadData, "file_parsed")
 
     def loadData(self, structs):
+        #we'll only want to display the grid when data is actually loaded, so it's created here
         if self.grid is None:
             self.grid = wx.grid.Grid(self, wx.ID_ANY)
             self.gridSizer = self.sizer.Add(self.grid, 1, wx.ALL | wx.EXPAND, 5)
-            self.grid.SetDefaultEditor(ReadOnlyTextEditor())
+            self.grid.Bind(wx.grid.EVT_GRID_CELL_CHANGED, self.grid_cell_changed)
+
 
         logging.debug("Populating list.")
         self.grid.SetTable(None)
@@ -162,17 +243,40 @@ class MainPanel(wx.Panel):
                 self.grid.SetCellValue(i, j, str(field))
         self.grid.SetRowLabelSize(wx.grid.GRID_AUTOSIZE)
         self.grid.AutoSize()
+        self.Layout() #the scroll bars won't appear without this here...
 
-#We don't support editing data (yet (ever)), but copying data out of the cells is still nice,
-#so this sets the text contents to read-only but still selectable.
-class ReadOnlyTextEditor(wx.grid.GridCellTextEditor):
-    def __init__(self, maxchars=0):
-        super().__init__(maxchars)
+        self.GetParent().update_menu_items()
 
-    def Create(self, parent, id, evtHandler):
-        super().Create(parent, id, evtHandler)
-        self.GetControl().SetWindowStyle(wx.TE_READONLY)
+    def grid_cell_changed(self, event):
+        row = event.GetRow()
+        col = event.GetCol()
+        old = event.GetString()
+        new = self.grid.GetCellValue(row, col)
+        command = EditGridText(self.grid, row, col, old, new, canUndo=True, name="Change grid value")
+        logging.debug("Grid cell changed, submitting command")
 
+        #not sure if this is the right place for this, but oh well
+        self.GetParent().command_processor.Submit(command)
+        self.GetParent().update_menu_items()
+
+
+#Undo-redo functionality is done through these commands
+class EditGridText(wx.Command):
+    def __init__(self, grid, row, col, oldText, newText, canUndo=False, name=""):
+        super().__init__(canUndo, name)
+        self.grid = grid
+        self.row = row
+        self.col = col
+        self.oldText = oldText
+        self.newText = newText
+
+    def Do(self):
+        self.grid.SetCellValue(self.row, self.col, self.newText)
+        return True
+
+    def Undo(self):
+        self.grid.SetCellValue(self.row, self.col, self.oldText)
+        return True
 
 
 if __name__ == '__main__':
