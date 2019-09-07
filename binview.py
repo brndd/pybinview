@@ -143,13 +143,16 @@ class MainPanel(wx.Panel):
         super().__init__(parent)
         self.sizer = wx.BoxSizer(wx.VERTICAL)
 
-        self.grid = wx.grid.Grid(self, wx.ID_ANY)
-        #self.grid.EnableEditing(False)
-        self.gridSizer = self.sizer.Add(self.grid, 1, wx.ALL | wx.EXPAND, 5)
+        self.grid = None
         self.SetSizer(self.sizer)
         pub.subscribe(self.loadData, "file_parsed")
 
     def loadData(self, structs):
+        if self.grid is None:
+            self.grid = wx.grid.Grid(self, wx.ID_ANY)
+            self.gridSizer = self.sizer.Add(self.grid, 1, wx.ALL | wx.EXPAND, 5)
+            self.grid.SetDefaultEditor(ReadOnlyTextEditor())
+
         logging.debug("Populating list.")
         self.grid.SetTable(None)
         self.grid.CreateGrid(len(structs), len(structs[0]))
@@ -157,11 +160,18 @@ class MainPanel(wx.Panel):
         for i, struct in enumerate(structs):
             for j, field in enumerate(struct):
                 self.grid.SetCellValue(i, j, str(field))
+        self.grid.SetRowLabelSize(wx.grid.GRID_AUTOSIZE)
+        self.grid.AutoSize()
 
-class MyGrid(wx.grid.Grid):
-    def __init__(self, parent):
-        super().__init__(self, parent)
+#We don't support editing data (yet (ever)), but copying data out of the cells is still nice,
+#so this sets the text contents to read-only but still selectable.
+class ReadOnlyTextEditor(wx.grid.GridCellTextEditor):
+    def __init__(self, maxchars=0):
+        super().__init__(maxchars)
 
+    def Create(self, parent, id, evtHandler):
+        super().Create(parent, id, evtHandler)
+        self.GetControl().SetWindowStyle(wx.TE_READONLY)
 
 
 
