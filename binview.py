@@ -3,6 +3,7 @@ import os
 import logging
 import wx
 import wx.grid
+import wx.lib.intctrl
 import struct
 import re
 
@@ -181,6 +182,8 @@ class MainView(wx.Frame):
         self.update_menu_items()
 
     def file_structure_prompt(self, filepath):
+        dialog = StructDialog(self)
+        dialog.ShowModal()
         dialog = wx.TextEntryDialog(self, "Input struct format string.")
         if dialog.ShowModal() == wx.ID_OK:
             pub.sendMessage("struct_format_selected", struct_format=dialog.GetValue())
@@ -216,7 +219,7 @@ class FileDrop(wx.FileDropTarget):
         pub.sendMessage("file_selected", filepath=filename)
         return True
 
-#This is the panel/list that shows the parsed data
+#This is the panel/grid that shows the parsed data
 class MainPanel(wx.Panel):
     def __init__(self, parent):
         super().__init__(parent)
@@ -277,6 +280,76 @@ class EditGridText(wx.Command):
     def Undo(self):
         self.grid.SetCellValue(self.row, self.col, self.oldText)
         return True
+
+
+#Struct format selection dialog
+class StructDialog(wx.Dialog):
+    #the values here are a tuple with the length and the struct format character for the type
+    _choices = {'signed char': (1, 'b'),
+                'unsigned char': (1, 'B'),
+                'boolean': (1, '?'),
+                'short': (2, 'h'),
+                'unsigned short': (2, 'H'),
+                'int': (4, 'i'),
+                'unsigned int': (4, 'I'),
+                'long': (8, 'q'), #this is actually 'long long' but that's dumb so we're calling it long
+                'unsigned long': (8, 'Q'),
+                'float': (4, 'f'),
+                'double': (8, 'd'),
+                'char[]': (1, 's'),
+                'null-terminated string': (None, 's')}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._panel = wx.Panel(self)
+        self._sizer = wx.BoxSizer(wx.VERTICAL)
+
+        addSizer = wx.BoxSizer(wx.HORIZONTAL)
+        self._add_button = wx.Button(self, id=wx.ID_ADD)
+        self._add_button.Bind(wx.EVT_BUTTON, self.add_line)
+        addSizer.Add(self._add_button, flag=wx.ALIGN_LEFT)
+        self._sizer.Add(addSizer)
+
+        endianSizer = wx.BoxSizer(wx.HORIZONTAL)
+        self._rb = wx.RadioBox(self, choices=['Little-endian', 'Big-endian'], majorDimension=1, style=wx.RA_SPECIFY_ROWS)
+        endianSizer.Add(self._rb)
+        self._sizer.Add(endianSizer)
+
+        buttonSizer = wx.BoxSizer(wx.HORIZONTAL)
+        self._ok_button = wx.Button(self, id=wx.ID_OK)
+        self._ok_button.Bind(wx.EVT_BUTTON, self.on_accept)
+        buttonSizer.Add(self._ok_button)
+        self._cancel_button = wx.Button(self, id=wx.CANCEL)
+        buttonSizer.Add(self._cancel_button)
+        self._sizer.Add(buttonSizer)
+
+
+
+    #adds a new line of selection fields
+    def add_line(self, event=None):
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        choices = self._choices.keys()
+        choice = wx.Choice(self, choices=choices)
+        sizer.Add(choice)
+
+        sel = choices[choice.GetSelection()]
+        length = self._choices[sel][0]
+        size = wx.lib.intctrl.IntCtrl(self, value=length, allow_none=False, min=1)
+        if sel is 'char[]':
+            #size.Enable(True)
+            pass
+        elif sel is 'null-terminated string':
+            size.SetNoneAllowed(True)
+            size.SetValue(None)
+            size.Enable(False)
+        else:
+            size.Enable(False)
+
+
+    #checks the data before passing the accept
+    def on_accept(self, event):
+        pass
 
 
 if __name__ == '__main__':
