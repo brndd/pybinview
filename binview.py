@@ -305,46 +305,60 @@ class StructDialog(wx.Dialog):
         self._sizer = wx.BoxSizer(wx.VERTICAL)
 
         addSizer = wx.BoxSizer(wx.HORIZONTAL)
-        self._add_button = wx.Button(self, id=wx.ID_ADD)
+        self._add_button = wx.Button(self._panel, id=wx.ID_ADD)
         self._add_button.Bind(wx.EVT_BUTTON, self.add_line)
         addSizer.Add(self._add_button, flag=wx.ALIGN_LEFT)
         self._sizer.Add(addSizer)
 
         endianSizer = wx.BoxSizer(wx.HORIZONTAL)
-        self._rb = wx.RadioBox(self, choices=['Little-endian', 'Big-endian'], majorDimension=1, style=wx.RA_SPECIFY_ROWS)
+        self._rb = wx.RadioBox(self._panel, choices=['Little-endian', 'Big-endian'], majorDimension=1, style=wx.RA_SPECIFY_ROWS)
         endianSizer.Add(self._rb)
         self._sizer.Add(endianSizer)
 
-        buttonSizer = wx.BoxSizer(wx.HORIZONTAL)
-        self._ok_button = wx.Button(self, id=wx.ID_OK)
+        buttonSizer = wx.StdDialogButtonSizer()
+        self._cancel_button = wx.Button(self._panel, id=wx.ID_CANCEL)
+        buttonSizer.AddButton(self._cancel_button)
+        self._ok_button = wx.Button(self._panel, id=wx.ID_OK)
         self._ok_button.Bind(wx.EVT_BUTTON, self.on_accept)
-        buttonSizer.Add(self._ok_button)
-        self._cancel_button = wx.Button(self, id=wx.CANCEL)
-        buttonSizer.Add(self._cancel_button)
-        self._sizer.Add(buttonSizer)
+        buttonSizer.AddButton(self._ok_button)
+        buttonSizer.Realize()
+        self.Bind(wx.EVT_BUTTON, self.on_accept, id=wx.ID_OK)
+        self._sizer.Add(buttonSizer, flag=wx.ALIGN_BOTTOM|wx.ALIGN_CENTER)
+
+        self.add_line(resize=False)
+
+        self._panel.SetSizer(self._sizer)
+        self._sizer.SetSizeHints(self)
 
 
 
     #adds a new line of selection fields
-    def add_line(self, event=None):
+    def add_line(self, event=None, resize=True):
         sizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        choices = self._choices.keys()
-        choice = wx.Choice(self, choices=choices)
+        choices = list(self._choices.keys())
+        choice = wx.Choice(self._panel, choices=choices)
         sizer.Add(choice)
 
         sel = choices[choice.GetSelection()]
         length = self._choices[sel][0]
-        size = wx.lib.intctrl.IntCtrl(self, value=length, allow_none=False, min=1)
+        size = wx.lib.intctrl.IntCtrl(self._panel, value=length, allow_none=True, min=1)
         if sel is 'char[]':
-            #size.Enable(True)
-            pass
+            size.Enable(True)
+            size.SetNoneAllowed(False)
         elif sel is 'null-terminated string':
-            size.SetNoneAllowed(True)
             size.SetValue(None)
             size.Enable(False)
         else:
             size.Enable(False)
+            size.SetNoneAllowed(False)
+        sizer.Add(size)
+
+        length = len(self._sizer.GetChildren())
+        self._sizer.Insert(length - 3, sizer)
+        if resize:
+            self._sizer.Layout()
+            self._sizer.Fit(self)
 
 
     #checks the data before passing the accept
