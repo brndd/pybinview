@@ -183,10 +183,8 @@ class MainView(wx.Frame):
 
     def file_structure_prompt(self, filepath):
         dialog = StructDialog(self)
-        dialog.ShowModal()
-        dialog = wx.TextEntryDialog(self, "Input struct format string.")
         if dialog.ShowModal() == wx.ID_OK:
-            pub.sendMessage("struct_format_selected", struct_format=dialog.GetValue())
+            pub.sendMessage("struct_format_selected", struct_format=dialog.format_string)
         dialog.Destroy()
 
     #this updates the disable/enable state of the menu items appropriately
@@ -283,9 +281,13 @@ class EditGridText(wx.Command):
 
 
 #Struct format selection dialog
+#this whole thing is more than a little ugly and could do with refactoring to eg.
+#keep the selection state in a more convenient place instead of getting it from the elements
+#directly when the selection is accepted... but this will do for now
 class StructDialog(wx.Dialog):
     #the values here are a tuple with the length and the struct format character for the type
-    _choices = {'signed char': (1, 'b'),
+    _choices = {'char': (1, 'c'),
+                'signed char': (1, 'b'),
                 'unsigned char': (1, 'B'),
                 'boolean': (1, '?'),
                 'short': (2, 'h'),
@@ -297,10 +299,16 @@ class StructDialog(wx.Dialog):
                 'float': (4, 'f'),
                 'double': (8, 'd'),
                 'char[]': (1, 's'),
-                'null-terminated string': (None, 's')}
+                'null-terminated string': (None, 'S')}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        #this will contain the format string after a selection has been successfully made
+        #it contains None otherwise
+        self.format_string = None
+
+        #Smelly UI code below
         self._panel = wx.Panel(self)
         self._sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -322,7 +330,6 @@ class StructDialog(wx.Dialog):
         self._ok_button.Bind(wx.EVT_BUTTON, self.on_accept)
         buttonSizer.AddButton(self._ok_button)
         buttonSizer.Realize()
-        self.Bind(wx.EVT_BUTTON, self.on_accept, id=wx.ID_OK)
         self._sizer.Add(buttonSizer, flag=wx.ALIGN_BOTTOM|wx.ALIGN_CENTER)
 
         self.add_line(resize=False)
@@ -338,21 +345,32 @@ class StructDialog(wx.Dialog):
 
         choices = list(self._choices.keys())
         choice = wx.Choice(self._panel, choices=choices)
+        choice.Bind(wx.EVT_CHOICE, self.on_format_selected)
+        choice.SetSelection(0)
         sizer.Add(choice)
 
         sel = choices[choice.GetSelection()]
         length = self._choices[sel][0]
         size = wx.lib.intctrl.IntCtrl(self._panel, value=length, allow_none=True, min=1)
-        if sel is 'char[]':
+        if sel == 'char[]':
+            logging.debug('Enabling size selection.')
             size.Enable(True)
             size.SetNoneAllowed(False)
-        elif sel is 'null-terminated string':
+            size.SetValue(self._choices[sel][0])
+        elif sel == 'null-terminated string':
+            logging.debug('Disabling size selection.')
+            size.SetNoneAllowed(True)
             size.SetValue(None)
             size.Enable(False)
         else:
             size.Enable(False)
             size.SetNoneAllowed(False)
+            size.SetValue(self._choices[sel][0])
         sizer.Add(size)
+
+        removeButton = wx.Button(self._panel, id=wx.ID_REMOVE)
+        removeButton.Bind(wx.EVT_BUTTON, self.on_delete_clicked)
+        sizer.Add(removeButton)
 
         length = len(self._sizer.GetChildren())
         self._sizer.Insert(length - 3, sizer)
@@ -360,10 +378,60 @@ class StructDialog(wx.Dialog):
             self._sizer.Layout()
             self._sizer.Fit(self)
 
+    #deletes the clicked selection field
+    def on_delete_clicked(self, event):
+        sizer = event.GetEventObject().GetContainingSizer()
+        self._sizer.Hide(sizer)
+        self._sizer.Remove(sizer)
+        self._sizer.Layout()
+        self._sizer.Fit(self)
 
-    #checks the data before passing the accept
+
+    #update the size field to show the size of the selected format (and allow editing if applicable)
+    def on_format_selected(self, event):
+        text = event.GetString()
+        logging.debug('Text is "%s"', text)
+        sizer = event.GetEventObject().GetContainingSizer()
+        size = sizer.GetChildren()[-2].GetWindow()
+
+        if text == 'char[]':
+            logging.debug('Enabling size selection.')
+            size.Enable(True)
+            size.SetNoneAllowed(False)
+            size.SetValue(self._choices[text][0])
+        elif text == 'null-terminated string':
+            logging.debug('Disabling size selection.')
+            size.SetNoneAllowed(True)
+            size.SetValue(None)
+            size.Enable(False)
+        else:
+            logging.debug('Disabling size selection.')
+            size.Enable(False)
+            size.SetNoneAllowed(False)
+            size.SetValue(self._choices[text][0])
+
+
+    #construct the format string before passing the accept
     def on_accept(self, event):
-        pass
+        formatstring = [] #we'll build this in a list and then .join() it because it's faster or summat
+
+        endianness = '<' if self._rb.GetSelection() == 0 else '>'
+        formatstring.append(endianness)
+
+        format_sizers = [x.GetSizer() for x in list(self._sizer.GetChildren())[:-3]]
+        for sizer in format_sizers:
+            format_field = sizer.GetChildren()[0].GetWindow().GetStringSelection()
+            format_size = sizer.GetChildren()[1].GetWindow().GetValue()
+            format_char = self._choices[format_field][1]
+            if format_field == 'char[]':
+                formatstring.append(str(format_size))
+                formatstring.append(format_char)
+            else:
+                formatstring.append(format_char)
+
+        self.format_string = ''.join(formatstring)
+        logging.debug('Built format string "%s" upon accepting.', self.format_string)
+        event.Skip(True)
 
 
 if __name__ == '__main__':
