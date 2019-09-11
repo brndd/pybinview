@@ -25,8 +25,8 @@ format (little-endian):
 - A random short int (2 bytes) value.
 - A random int (4 bytes) value.
 - A random long int (8 bytes) value.
-- A random double-precision floating point (8 bytes) value.
 - A null-terminated string containing the text: "The contents of this string don't really matter."
+- A random double-precision floating point (8 bytes) value.
 
 A .csv file containing matching data is provided to compare results.
 
