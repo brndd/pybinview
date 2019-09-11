@@ -6,6 +6,7 @@ import wx.grid
 import wx.lib.intctrl
 import struct
 import re
+import csv
 
 from pubsub import pub
 from pubsub.utils.notification import useNotifyByWriteFile
@@ -154,7 +155,7 @@ class MainView(wx.Frame):
 
     #this saves the file into a CSV... for technical reasons (laziness) this breaks the MVC pattern by saving
     #the string data currently in the grid rather than properly manipulating the data in the Model
-    #(type conversions would make this too complicated for the scope of the project)
+    #(type conversions would make this too complicated for my tastes)
     def on_save_file(self, event):
         dialog = wx.FileDialog(
             self, message="Save file as CSV...", defaultDir=os.getcwd(),
@@ -163,6 +164,24 @@ class MainView(wx.Frame):
         if dialog.ShowModal() == wx.ID_OK:
             path = dialog.GetPath()
             logging.debug("Saving CSV into %s", path)
+            #I can't believe we have to do it like this
+            #TODO: write our own GridTable implementation or properly update the model side of things,
+            #so this isn't necessary
+            grid = self.panel.grid
+            numrows = self.panel.grid.GetNumberRows()
+            numcols = self.panel.grid.GetNumberCols()
+            rows = []
+            for i in range(0, numrows):
+                row = []
+                for j in range(0, numcols):
+                    row.append(grid.GetCellValue(i, j))
+                rows.append(row)
+            with open(path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=';')
+                for row in rows:
+                    writer.writerow(row)
+                logging.debug("Wrote %d rows into %s", len(rows), path)
+
 
     def on_quit(self, event):
         dialog = wx.MessageDialog(self, 'Really quit?', 'Confirm quit', wx.YES_NO | wx.NO_DEFAULT)
